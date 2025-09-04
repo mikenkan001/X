@@ -104,23 +104,7 @@ def home():
         student = cursor.fetchone()
         conn.close()
         if student:
-            return render_template('index.html', student=student)  # Changed from home.html to index.html
-        else:
-            flash('User not found.', 'danger')
-            return redirect(url_for('logout'))
-    except sqlite3.OperationalError as e:
-        flash(f'Database error: {e}', 'danger')
-        return redirect(url_for('login'))
-
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    flash('Logged out successfully.', 'info')
-    return redirect(url_for('login'))
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))        if student:
-            return render_template('home.html', student=student)
+            return render_template('index.html', student=student)
         else:
             flash('User not found.', 'danger')
             return redirect(url_for('logout'))
