@@ -5,26 +5,36 @@ import sqlite3
 import os
 
 app = Flask(__name__)
-app.secret_key = 'your_secure_random_key'  # Change this to a random string
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your_secure_random_key')  # Use env var for security
 
-# Database path (adjust for Pydroid 3 storage)
-DB_PATH = '/storage/emulated/0/Pydroid3/myapp/students.db'
+# Database path for Render persistent storage
+DB_PATH = '/data/students.db'  # Matches Render's persistent disk mount path
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            age INTEGER
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    # Ensure the directory exists
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir)
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                age INTEGER
+            )
+        ''')
+        conn.commit()
+        conn.close()
+        print(f"Database initialized at {DB_PATH}")
+    except sqlite3.OperationalError as e:
+        print(f"Error initializing database: {e}")
+        raise
 
 # Initialize database
 if not os.path.exists(DB_PATH):
@@ -41,17 +51,20 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM students WHERE username = ?', (username,))
-        user = cursor.fetchone()
-        conn.close()
-        if user and check_password_hash(user[2], password):  # user[2] is password
-            session['username'] = username
-            flash('Login successful!', 'success')
-            return redirect(url_for('home'))
-        else:
-            flash('Invalid username or password.', 'danger')
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM students WHERE username = ?', (username,))
+            user = cursor.fetchone()
+            conn.close()
+            if user and check_password_hash(user[2], password):  # user[2] is password
+                session['username'] = username
+                flash('Login successful!', 'success')
+                return redirect(url_for('home'))
+            else:
+                flash('Invalid username or password.', 'danger')
+        except sqlite3.OperationalError as e:
+            flash(f'Database error: {e}', 'danger')
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -75,6 +88,8 @@ def register():
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
             flash('Username already exists.', 'danger')
+        except sqlite3.OperationalError as e:
+            flash(f'Database error: {e}', 'danger')
     return render_template('register.html')
 
 @app.route('/home')
@@ -82,12 +97,20 @@ def home():
     if 'username' not in session:
         flash('Please login first.', 'warning')
         return redirect(url_for('login'))
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT name, email, age FROM students WHERE username = ?', (session['username'],))
-    student = cursor.fetchone()
-    conn.close()
-    return render_template('home.html', student=student)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT name, email, age FROM students WHERE username = ?', (session['username'],))
+        student = cursor.fetchone()
+        conn.close()
+        if student:
+            return render_template('home.html', student=student)
+        else:
+            flash('User not found.', 'danger')
+            return redirect(url_for('logout'))
+    except sqlite3.OperationalError as e:
+        flash(f'Database error: {e}', 'danger')
+        return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
@@ -96,4 +119,4 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
